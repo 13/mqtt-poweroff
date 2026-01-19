@@ -1,52 +1,61 @@
 #!/bin/bash
-# One-liner installer for mqtt-poweroff
+# Installer for MQTT Poweroff + Minimal Status
 
 set -euo pipefail
 
 # Defaults
 BROKER_DEFAULT="192.168.22.5"
-TOPIC_DEFAULT="muh/poweroff"
-
-echo "=== MQTT Poweroff Installer ==="
+TOPIC_POWER_DEFAULT="muh/poweroff"
 
 # Check if mosquitto_sub is installed
 if ! command -v mosquitto_sub >/dev/null 2>&1; then
     echo "[ERROR] mosquitto_sub is not installed"
-    echo "[INFO] Please install mosquitto-clients package:"
-    echo "       - Debian/Ubuntu: sudo apt-get install mosquitto-clients"
-    echo "       - RHEL/CentOS/Fedora: sudo dnf install mosquitto-clients (or yum on older versions)"
-    echo "       - Arch: sudo pacman -S mosquitto"
+    echo "[INFO] Please install mosquitto-clients package"
     exit 1
 fi
-echo "[INFO] mosquitto_sub found"
 
+echo "=== MQTT Poweroff + Status Installer ==="
+
+# Ask for broker & poweroff topic
 read -rp "Enter MQTT broker IP [${BROKER_DEFAULT}]: " BROKER
 BROKER=${BROKER:-$BROKER_DEFAULT}
 
-read -rp "Enter MQTT topic [${TOPIC_DEFAULT}]: " TOPIC
-TOPIC=${TOPIC:-$TOPIC_DEFAULT}
+read -rp "Enter MQTT poweroff topic [${TOPIC_POWER_DEFAULT}]: " TOPIC_POWER
+TOPIC_POWER=${TOPIC_POWER:-$TOPIC_POWER_DEFAULT}
 
+# Temp working dir
 TMPDIR=$(mktemp -d)
 cd "$TMPDIR"
 
-echo "[INFO] Downloading files..."
+echo "[INFO] Downloading scripts..."
 curl -fsSL "https://raw.githubusercontent.com/13/mqtt-poweroff/main/mqtt-poweroff.sh" -o mqtt-poweroff.sh
+curl -fsSL "https://raw.githubusercontent.com/13/mqtt-poweroff/main/mqtt-status.sh" -o mqtt-status.sh
 curl -fsSL "https://raw.githubusercontent.com/13/mqtt-poweroff/main/mqtt-poweroff.service" -o mqtt-poweroff.service
+curl -fsSL "https://raw.githubusercontent.com/13/mqtt-poweroff/main/mqtt-status.service" -o mqtt-status.service
 
-# Inject broker & topic using environment variables
+# Inject broker & topic into poweroff script
 sed -i "s|^BROKER=.*|BROKER=\"$BROKER\"|" mqtt-poweroff.sh
-sed -i "s|^TOPIC=.*|TOPIC=\"$TOPIC\"|" mqtt-poweroff.sh
+sed -i "s|^TOPIC=.*|TOPIC=\"$TOPIC_POWER\"|" mqtt-poweroff.sh
 
-# Install
+# Make scripts executable
+chmod +x mqtt-poweroff.sh mqtt-status.sh
+
+# Install scripts
 sudo cp mqtt-poweroff.sh /usr/local/bin/mqtt-poweroff.sh
-sudo chmod +x /usr/local/bin/mqtt-poweroff.sh
-sudo cp mqtt-poweroff.service /etc/systemd/system/mqtt-poweroff.service
+sudo cp mqtt-status.sh /usr/local/bin/mqtt-status.sh
 
-# Enable & start
+# Install systemd services
+sudo cp mqtt-poweroff.service /etc/systemd/system/mqtt-poweroff.service
+sudo cp mqtt-status.service /etc/systemd/system/mqtt-status.service
+
+# Enable & start services
 sudo systemctl daemon-reload
 sudo systemctl enable --now mqtt-poweroff.service
+sudo systemctl enable --now mqtt-status.service
 
+# Cleanup
 cd /
 rm -rf "$TMPDIR"
 
-echo "[DONE] MQTT Poweroff installed and running."
+echo "[DONE] MQTT Poweroff + Status installed and running."
+

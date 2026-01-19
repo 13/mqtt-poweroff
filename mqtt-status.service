@@ -1,0 +1,14 @@
+[Unit]
+Description=MQTT Minimal Status Publisher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/mqtt-status.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
