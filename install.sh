@@ -9,6 +9,17 @@ TOPIC_DEFAULT="muh/poweroff"
 
 echo "=== MQTT Poweroff Installer ==="
 
+# Check if mosquitto_sub is installed
+if [ ! -x /usr/bin/mosquitto_sub ]; then
+    echo "[ERROR] mosquitto_sub is not installed at /usr/bin/mosquitto_sub"
+    echo "[INFO] Please install mosquitto-clients package:"
+    echo "       - Debian/Ubuntu: sudo apt-get install mosquitto-clients"
+    echo "       - RHEL/CentOS: sudo yum install mosquitto"
+    echo "       - Arch: sudo pacman -S mosquitto"
+    exit 1
+fi
+echo "[INFO] mosquitto_sub found at /usr/bin/mosquitto_sub"
+
 read -rp "Enter MQTT broker IP [${BROKER_DEFAULT}]: " BROKER
 BROKER=${BROKER:-$BROKER_DEFAULT}
 
