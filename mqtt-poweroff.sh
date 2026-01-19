@@ -3,6 +3,13 @@
 
 set -euo pipefail
 
+# Check if mosquitto_sub is installed
+if ! command -v mosquitto_sub >/dev/null 2>&1; then
+    echo "[ERROR] mosquitto_sub is not installed"
+    echo "[INFO] Please install mosquitto-clients package"
+    exit 1
+fi
+
 # Broker and topic from environment variables or defaults
 BROKER="${MQTT_BROKER:-192.168.22.5}"
 TOPIC="${MQTT_TOPIC:-muh/poweroff}"
