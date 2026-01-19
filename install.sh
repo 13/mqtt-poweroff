@@ -14,7 +14,7 @@ if ! command -v mosquitto_sub >/dev/null 2>&1; then
     echo "[ERROR] mosquitto_sub is not installed"
     echo "[INFO] Please install mosquitto-clients package:"
     echo "       - Debian/Ubuntu: sudo apt-get install mosquitto-clients"
-    echo "       - RHEL/CentOS: sudo yum install mosquitto-clients"
+    echo "       - RHEL/CentOS/Fedora: sudo dnf install mosquitto-clients (or yum on older versions)"
     echo "       - Arch: sudo pacman -S mosquitto"
     exit 1
 fi
