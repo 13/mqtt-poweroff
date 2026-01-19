@@ -1,36 +1,37 @@
 #!/bin/bash
-# Publish minimal online/offline status to MQTT
+# Publish minimal online/offline status to MQTT with proper LWT
+
+set -euo pipefail
 
 BROKER="${MQTT_BROKER:-192.168.22.5}"
-#HOSTNAME=$(hostname | tr 'A-Z' 'a-z')
 HOSTNAME="$(hostname | tr 'A-Z' 'a-z').muh"
 IP=$(hostname -I | awk '{print $1}')
 MAC=$(cat /sys/class/net/*/address | grep -Ev '^00:00:00' | head -n1 | tr 'A-Z' 'a-z')
 TOPIC="muh/pc/$HOSTNAME"
 
-# Check if mosquitto_sub is installed
-if ! command -v mosquitto_sub >/dev/null 2>&1; then
-    echo "[ERROR] mosquitto_sub is not installed"
+# Check if mosquitto_pub is installed
+if ! command -v mosquitto_pub >/dev/null 2>&1; then
+    echo "[ERROR] mosquitto_pub is not installed"
     echo "[INFO] Please install mosquitto-clients package"
     exit 1
 fi
 
-publish_status() {
-    local alive=$1
-    mosquitto_pub -h "$BROKER" \
-      -t "$TOPIC" \
-      -m "{\"name\":\"$HOSTNAME\",\"ip\":\"$IP\",\"mac\":\"$MAC\",\"alive\":$alive}" \
-      -r
-}
+# Messages
+ONLINE="{\"name\":\"$HOSTNAME\",\"ip\":\"$IP\",\"mac\":\"$MAC\",\"alive\":true}"
+OFFLINE="{\"name\":\"$HOSTNAME\",\"ip\":\"$IP\",\"mac\":\"$MAC\",\"alive\":false}"
 
-# Publish online
-publish_status true
+echo "[INFO] Connecting to MQTT broker $BROKER and publishing alive status..."
 
-# Setup LWT for offline detection
+# Persistent connection with LWT
 mosquitto_pub -h "$BROKER" \
   -t "$TOPIC" \
   -i "$HOSTNAME" \
-  -m "{\"name\":\"$HOSTNAME\",\"ip\":\"$IP\",\"mac\":\"$MAC\",\"alive\":true}" \
+  -m "$ONLINE" \
   -lwt "$TOPIC" \
-  -lm "{\"name\":\"$HOSTNAME\",\"ip\":\"$IP\",\"mac\":\"$MAC\",\"alive\":false}" \
+  -lm "$OFFLINE" \
   -r
+
+# Keep the script alive so LWT works on unexpected shutdown
+while true; do
+    sleep 60
+done

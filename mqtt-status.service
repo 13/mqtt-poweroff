@@ -1,5 +1,5 @@
 [Unit]
-Description=MQTT Minimal Status Publisher
+Description=MQTT Minimal Status Publisher with LWT
 After=network-online.target
 Wants=network-online.target
 
