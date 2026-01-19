@@ -1,5 +1,5 @@
 #!/bin/bash
-# Publish minimal online/offline status to MQTT with proper LWT
+# MQTT Minimal Status Publisher with LWT (Mosquitto 2.x syntax)
 
 set -euo pipefail
 
@@ -12,7 +12,6 @@ TOPIC="muh/pc/$HOSTNAME"
 # Check if mosquitto_pub is installed
 if ! command -v mosquitto_pub >/dev/null 2>&1; then
     echo "[ERROR] mosquitto_pub is not installed"
-    echo "[INFO] Please install mosquitto-clients package"
     exit 1
 fi
 
@@ -22,16 +21,18 @@ OFFLINE="{\"name\":\"$HOSTNAME\",\"ip\":\"$IP\",\"mac\":\"$MAC\",\"alive\":false
 
 echo "[INFO] Connecting to MQTT broker $BROKER and publishing alive status..."
 
-# Persistent connection with LWT
+# Persistent connection with LWT using MQTT v5 syntax
 mosquitto_pub -h "$BROKER" \
   -t "$TOPIC" \
   -i "$HOSTNAME" \
   -m "$ONLINE" \
-  -lwt "$TOPIC" \
-  -lm "$OFFLINE" \
+  --will-topic "$TOPIC" \
+  --will-payload "$OFFLINE" \
+  --will-retain \
   -r
 
-# Keep the script alive so LWT works on unexpected shutdown
+# Keep script alive so LWT works on unexpected shutdown
 while true; do
     sleep 60
 done
+
