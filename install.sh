@@ -1,5 +1,5 @@
 #!/bin/bash
-# Installer for MQTT Poweroff + Minimal Status
+# Installer for MQTT Poweroff
 
 set -euo pipefail
 
@@ -14,14 +14,20 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Check if mosquitto_sub is installed
+# Check if mosquitto_sub and mosquitto_pub are installed
 if ! command -v mosquitto_sub >/dev/null 2>&1; then
     echo "[ERROR] mosquitto_sub is not installed"
     echo "[INFO] Please install mosquitto-clients package"
     exit 1
 fi
 
-echo "=== MQTT Poweroff + Status Installer ==="
+if ! command -v mosquitto_pub >/dev/null 2>&1; then
+    echo "[ERROR] mosquitto_pub is not installed"
+    echo "[INFO] Please install mosquitto-clients package"
+    exit 1
+fi
+
+echo "=== MQTT Poweroff Installer ==="
 
 # Ask for broker & poweroff topic
 read -rp "Enter MQTT broker IP [${BROKER_DEFAULT}]: " BROKER
@@ -36,33 +42,34 @@ cd "$TMPDIR"
 
 echo "[INFO] Downloading scripts..."
 curl -fsSL "https://raw.githubusercontent.com/13/mqtt-poweroff/main/mqtt-poweroff.sh" -o mqtt-poweroff.sh
-curl -fsSL "https://raw.githubusercontent.com/13/mqtt-poweroff/main/mqtt-status.sh" -o mqtt-status.sh
 curl -fsSL "https://raw.githubusercontent.com/13/mqtt-poweroff/main/mqtt-poweroff.service" -o mqtt-poweroff.service
-curl -fsSL "https://raw.githubusercontent.com/13/mqtt-poweroff/main/mqtt-status.service" -o mqtt-status.service
 
 # Inject broker & topic into poweroff script
 sed -i "s|^BROKER=.*|BROKER=\"$BROKER\"|" mqtt-poweroff.sh
 sed -i "s|^TOPIC=.*|TOPIC=\"$TOPIC_POWER\"|" mqtt-poweroff.sh
 
 # Make scripts executable
-chmod +x mqtt-poweroff.sh mqtt-status.sh
+chmod +x mqtt-poweroff.sh
 
 # Install scripts
 cp mqtt-poweroff.sh /usr/local/bin/mqtt-poweroff.sh
-cp mqtt-status.sh /usr/local/bin/mqtt-status.sh
 
 # Install systemd services
 cp mqtt-poweroff.service /etc/systemd/system/mqtt-poweroff.service
-cp mqtt-status.service /etc/systemd/system/mqtt-status.service
+
+# Stop and disable old mqtt-status service if it exists
+systemctl stop mqtt-status.service 2>/dev/null || true
+systemctl disable mqtt-status.service 2>/dev/null || true
+rm -f /etc/systemd/system/mqtt-status.service
+rm -f /usr/local/bin/mqtt-status.sh
 
 # Enable & start services
 systemctl daemon-reload
 systemctl enable --now mqtt-poweroff.service
-systemctl enable --now mqtt-status.service
 
 # Cleanup
 cd /
 rm -rf "$TMPDIR"
 
-echo "[DONE] MQTT Poweroff + Status installed and running."
+echo "[DONE] MQTT Poweroff installed and running."
 

@@ -2,6 +2,8 @@
 
 A small script and systemd service to power off a Linux machine when it receives an MQTT message containing its MAC address.
 
+On boot, the script also publishes an "alive" status message to MQTT with the machine's hostname, IP, and MAC address.
+
 ## Installation
 
 Run the installer:
