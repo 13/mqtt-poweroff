@@ -2,13 +2,28 @@
 Description=MQTT Poweroff Listener (MAC matched)
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 User=root
+EnvironmentFile=-/etc/default/mqtt-poweroff
 ExecStart=/usr/local/bin/mqtt-poweroff.sh
 Restart=always
-RestartSec=3
+RestartSec=10
+SyslogIdentifier=mqtt-poweroff
+
+# Hardening — the script only needs network, read access to /sys/class/net
+# and the systemd D-Bus socket for poweroff.
+NoNewPrivileges=yes
+ProtectHome=yes
+ProtectSystem=strict
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 
 [Install]
 WantedBy=multi-user.target

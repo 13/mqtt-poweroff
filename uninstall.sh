@@ -25,6 +25,10 @@ rm -f /etc/systemd/system/mqtt-poweroff.service
 echo "[INFO] Removing mqtt-poweroff script..."
 rm -f /usr/local/bin/mqtt-poweroff.sh
 
+# Remove configuration
+echo "[INFO] Removing configuration..."
+rm -f /etc/default/mqtt-poweroff
+
 # Also clean up old mqtt-status files if they exist
 echo "[INFO] Cleaning up old mqtt-status files (if any)..."
 systemctl stop mqtt-status.service 2>/dev/null || true

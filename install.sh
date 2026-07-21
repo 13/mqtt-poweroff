@@ -7,55 +7,74 @@ set -euo pipefail
 BROKER_DEFAULT="192.168.22.5"
 TOPIC_POWER_DEFAULT="muh/poweroff"
 
+# Pin to a tag or commit via MQTT_POWEROFF_REF for reproducible installs
+REF="${MQTT_POWEROFF_REF:-main}"
+BASE_URL="https://raw.githubusercontent.com/13/mqtt-poweroff/$REF"
+
+ENV_FILE="/etc/default/mqtt-poweroff"
+
 # Check for root
 if [ "$EUID" -ne 0 ]; then
     echo "[ERROR] This installer must be run as root."
-    echo "Try: sudo bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/13/mqtt-poweroff/main/install.sh)\""
+    echo "Try: sudo bash -c \"\$(curl -fsSL $BASE_URL/install.sh)\""
     exit 1
 fi
 
-# Check if mosquitto_sub and mosquitto_pub are installed
-if ! command -v mosquitto_sub >/dev/null 2>&1; then
-    echo "[ERROR] mosquitto_sub is not installed"
-    echo "[INFO] Please install mosquitto-clients package"
-    exit 1
-fi
+# Check dependencies
+for cmd in mosquitto_sub mosquitto_pub curl; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        echo "[ERROR] $cmd is not installed"
+        echo "[INFO] Please install the mosquitto-clients (and curl) packages"
+        exit 1
+    fi
+done
 
-if ! command -v mosquitto_pub >/dev/null 2>&1; then
-    echo "[ERROR] mosquitto_pub is not installed"
-    echo "[INFO] Please install mosquitto-clients package"
-    exit 1
+if ! command -v jq >/dev/null 2>&1; then
+    echo "[WARN] jq not installed — the listener will fall back to sed for JSON parsing."
+    echo "[WARN] Installing jq is recommended."
 fi
 
 echo "=== MQTT Poweroff Installer ==="
 
-# Ask for broker & poweroff topic
+# Ask for configuration
 read -rp "Enter MQTT broker IP [${BROKER_DEFAULT}]: " BROKER
 BROKER=${BROKER:-$BROKER_DEFAULT}
 
 read -rp "Enter MQTT poweroff topic [${TOPIC_POWER_DEFAULT}]: " TOPIC_POWER
 TOPIC_POWER=${TOPIC_POWER:-$TOPIC_POWER_DEFAULT}
 
-# Temp working dir
-TMPDIR=$(mktemp -d)
-cd "$TMPDIR"
+read -rp "Enter MQTT username (empty for none): " MQTT_USER
+MQTT_PASS=""
+if [ -n "$MQTT_USER" ]; then
+    read -rsp "Enter MQTT password: " MQTT_PASS
+    echo
+fi
 
-echo "[INFO] Downloading scripts..."
-curl -fsSL "https://raw.githubusercontent.com/13/mqtt-poweroff/main/mqtt-poweroff.sh" -o mqtt-poweroff.sh
-curl -fsSL "https://raw.githubusercontent.com/13/mqtt-poweroff/main/mqtt-poweroff.service" -o mqtt-poweroff.service
+read -rp "Enter shared secret for poweroff payloads (empty to disable): " MQTT_SECRET
 
-# Inject broker & topic into poweroff script
-sed -i "s|^BROKER=.*|BROKER=\"$BROKER\"|" mqtt-poweroff.sh
-sed -i "s|^TOPIC=.*|TOPIC=\"$TOPIC_POWER\"|" mqtt-poweroff.sh
+# Temp working dir, cleaned up on any exit
+WORKDIR=$(mktemp -d)
+trap 'rm -rf "$WORKDIR"' EXIT
+cd "$WORKDIR"
 
-# Make scripts executable
-chmod +x mqtt-poweroff.sh
+echo "[INFO] Downloading scripts (ref: $REF)..."
+curl -fsSL "$BASE_URL/mqtt-poweroff.sh" -o mqtt-poweroff.sh
+curl -fsSL "$BASE_URL/mqtt-poweroff.service" -o mqtt-poweroff.service
 
-# Install scripts
-cp mqtt-poweroff.sh /usr/local/bin/mqtt-poweroff.sh
+# Install script and systemd service
+install -m 755 mqtt-poweroff.sh /usr/local/bin/mqtt-poweroff.sh
+install -m 644 mqtt-poweroff.service /etc/systemd/system/mqtt-poweroff.service
 
-# Install systemd services
-cp mqtt-poweroff.service /etc/systemd/system/mqtt-poweroff.service
+# Write configuration; mode 600 because it may contain credentials
+echo "[INFO] Writing $ENV_FILE"
+{
+    echo "MQTT_BROKER=\"${BROKER//\"/\\\"}\""
+    echo "MQTT_TOPIC=\"${TOPIC_POWER//\"/\\\"}\""
+    if [ -n "$MQTT_USER" ]; then echo "MQTT_USER=\"${MQTT_USER//\"/\\\"}\""; fi
+    if [ -n "$MQTT_PASS" ]; then echo "MQTT_PASS=\"${MQTT_PASS//\"/\\\"}\""; fi
+    if [ -n "$MQTT_SECRET" ]; then echo "MQTT_SECRET=\"${MQTT_SECRET//\"/\\\"}\""; fi
+} > "$ENV_FILE"
+chmod 600 "$ENV_FILE"
 
 # Stop and disable old mqtt-status service if it exists
 systemctl stop mqtt-status.service 2>/dev/null || true
@@ -63,13 +82,9 @@ systemctl disable mqtt-status.service 2>/dev/null || true
 rm -f /etc/systemd/system/mqtt-status.service
 rm -f /usr/local/bin/mqtt-status.sh
 
-# Enable & start services
+# Enable & start service
 systemctl daemon-reload
 systemctl enable --now mqtt-poweroff.service
 
-# Cleanup
-cd /
-rm -rf "$TMPDIR"
-
 echo "[DONE] MQTT Poweroff installed and running."
-
+echo "[INFO] Configuration: $ENV_FILE (edit and 'systemctl restart mqtt-poweroff' to apply)"
