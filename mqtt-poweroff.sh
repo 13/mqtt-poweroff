@@ -39,13 +39,13 @@ fi
 
 # Pick first non-zero MAC
 LOCAL_MAC=$(cat /sys/class/net/*/address | grep -Ev '^00:00:00' | head -n1 | tr '[:upper:]' '[:lower:]')
-NODE_NAME="$(hostname | tr '[:upper:]' '[:lower:]')${NODE_SUFFIX}"
+NODE_NAME="$(cat /etc/hostname | tr '[:upper:]' '[:lower:]')${NODE_SUFFIX}"
 STATUS_TOPIC="$STATUS_PREFIX/$NODE_NAME"
 
 # Wait for an IP address; the service may start before DHCP has finished
 IP=""
 for _ in $(seq 1 30); do
-    IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+    IP=$(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)
     if [ -n "$IP" ]; then break; fi
     sleep 1
 done
