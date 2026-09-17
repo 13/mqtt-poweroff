@@ -3,14 +3,16 @@
 
 set -euo pipefail
 
-# Check dependencies
-for cmd in mosquitto_sub mosquitto_pub; do
-    if ! command -v "$cmd" >/dev/null 2>&1; then
-        echo "[ERROR] $cmd is not installed"
-        echo "[INFO] Please install mosquitto-clients package"
-        exit 1
-    fi
+# Check dependencies; report all missing tools at once
+MISSING=()
+for cmd in mosquitto_sub mosquitto_pub ip awk sed grep systemctl; do
+    command -v "$cmd" >/dev/null 2>&1 || MISSING+=("$cmd")
 done
+if [ "${#MISSING[@]}" -gt 0 ]; then
+    echo "[ERROR] Missing required tools: ${MISSING[*]}"
+    echo "[INFO] Install mosquitto-clients, iproute2, gawk, sed, grep and systemd"
+    exit 1
+fi
 
 HAVE_JQ=0
 if command -v jq >/dev/null 2>&1; then
@@ -28,6 +30,8 @@ MQTT_QOS="${MQTT_QOS:-1}"
 MQTT_SECRET="${MQTT_SECRET:-}"
 NODE_SUFFIX="${NODE_SUFFIX:-.muh}"
 STATUS_PREFIX="${STATUS_PREFIX:-muh/pc}"
+MQTT_WOL="${MQTT_WOL:-1}"
+MQTT_IFACE="${MQTT_IFACE:-}"
 
 AUTH_ARGS=()
 if [ -n "$MQTT_USER" ]; then
@@ -37,8 +41,6 @@ if [ -n "$MQTT_USER" ]; then
     fi
 fi
 
-# Pick first non-zero MAC
-LOCAL_MAC=$(cat /sys/class/net/*/address | grep -Ev '^00:00:00' | head -n1 | tr '[:upper:]' '[:lower:]')
 NODE_NAME="$(cat /etc/hostname | tr '[:upper:]' '[:lower:]')${NODE_SUFFIX}"
 STATUS_TOPIC="$STATUS_PREFIX/$NODE_NAME"
 
@@ -51,8 +53,66 @@ for _ in $(seq 1 30); do
 done
 [ -n "$IP" ] || echo "[WARN] No IP address found, continuing without it"
 
-ALIVE_MSG=$(printf '{"name":"%s","ip":"%s","mac":"%s","alive":true}' "$NODE_NAME" "$IP" "$LOCAL_MAC")
-DEAD_MSG=$(printf '{"name":"%s","ip":"%s","mac":"%s","alive":false}' "$NODE_NAME" "$IP" "$LOCAL_MAC")
+# Use the interface of the default route unless overridden
+IFACE="$MQTT_IFACE"
+if [ -z "$IFACE" ]; then
+    IFACE=$(ip route show default 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "dev") {print $(i+1); exit}}')
+fi
+
+if [ -n "$IFACE" ] && [ -r "/sys/class/net/$IFACE/address" ]; then
+    LOCAL_MAC=$(tr '[:upper:]' '[:lower:]' < "/sys/class/net/$IFACE/address")
+else
+    [ -z "$IFACE" ] || echo "[WARN] Interface $IFACE not found"
+    echo "[WARN] Falling back to first non-zero MAC"
+    IFACE=""
+    LOCAL_MAC=$(cat /sys/class/net/*/address | grep -Ev '^00:00:00' | head -n1 | tr '[:upper:]' '[:lower:]')
+fi
+
+# Enable Wake-on-LAN (magic packet) on $IFACE; sets WOL_ACTIVE.
+# Many drivers reset this on reboot, so it runs at startup and before poweroff.
+WOL_ACTIVE=false
+enable_wol() {
+    WOL_ACTIVE=false
+    [ "$MQTT_WOL" = "1" ] || return 0
+    if ! command -v ethtool >/dev/null 2>&1; then
+        echo "[WARN] ethtool not installed, cannot enable Wake-on-LAN"
+        return 0
+    fi
+    if [ -z "$IFACE" ]; then
+        echo "[WARN] No interface known, cannot enable Wake-on-LAN"
+        return 0
+    fi
+
+    local info supported current
+    info=$(ethtool "$IFACE" 2>/dev/null) || true
+    supported=$(awk -F': *' '/Supports Wake-on:/ {print $2; exit}' <<<"$info")
+    current=$(awk -F': *' '/^[[:space:]]*Wake-on:/ {print $2; exit}' <<<"$info")
+
+    if [[ "$supported" != *g* ]]; then
+        echo "[WARN] $IFACE does not support Wake-on-LAN magic packet"
+        return 0
+    fi
+    if [[ "$current" == *g* ]]; then
+        WOL_ACTIVE=true
+        return 0
+    fi
+    if ethtool -s "$IFACE" wol g; then
+        echo "[INFO] Wake-on-LAN enabled on $IFACE"
+        WOL_ACTIVE=true
+    else
+        echo "[WARN] Failed to enable Wake-on-LAN on $IFACE"
+    fi
+}
+
+enable_wol
+
+status_msg() {
+    printf '{"name":"%s","ip":"%s","mac":"%s","wol":%s,"alive":%s}' \
+        "$NODE_NAME" "$IP" "$LOCAL_MAC" "$WOL_ACTIVE" "$1"
+}
+
+ALIVE_MSG=$(status_msg true)
+DEAD_MSG=$(status_msg false)
 
 publish_status() {
     mosquitto_pub -h "$BROKER" ${AUTH_ARGS[@]+"${AUTH_ARGS[@]}"} -q "$MQTT_QOS" \
@@ -73,7 +133,7 @@ extract_field() {
 # Will below covers unclean disconnects where this trap never runs.
 trap 'publish_status "$DEAD_MSG"' EXIT
 
-echo "[INFO] Local MAC: $LOCAL_MAC"
+echo "[INFO] Interface: ${IFACE:-unknown}, MAC: $LOCAL_MAC, Wake-on-LAN: $WOL_ACTIVE"
 echo "[INFO] Publishing alive status to $STATUS_TOPIC"
 publish_status "$ALIVE_MSG"
 
@@ -104,6 +164,8 @@ mosquitto_sub -h "$BROKER" ${AUTH_ARGS[@]+"${AUTH_ARGS[@]}"} \
 
     if [ "$MAC" = "$LOCAL_MAC" ]; then
         echo "[ACTION] MAC match — powering off"
+        enable_wol
+        DEAD_MSG=$(status_msg false)
         publish_status "$DEAD_MSG"
         systemctl poweroff
     else

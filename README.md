@@ -18,7 +18,7 @@ To install from a specific tag or commit instead of `main`:
 MQTT_POWEROFF_REF=<tag-or-commit> bash -c "$(curl -fsSL https://raw.githubusercontent.com/13/mqtt-poweroff/<tag-or-commit>/install.sh)"
 ```
 
-Requires `mosquitto-clients`. Installing `jq` is recommended for robust JSON parsing (the script falls back to `sed` without it).
+Requires `mosquitto-clients`, `iproute2`, `curl` and systemd. Optional: `ethtool` for Wake-on-LAN and `jq` for robust JSON parsing (the script falls back to `sed` without it). The installer lists any missing tools, shows the install command for `apt`, `dnf`, `pacman` or `zypper`, and offers to run it.
 
 ## Configuration
 
@@ -33,6 +33,8 @@ The installer writes `/etc/default/mqtt-poweroff` (mode 600, may contain credent
 | `MQTT_SECRET` | *(none)* | If set, poweroff payloads must include a matching `"secret"` field |
 | `NODE_SUFFIX` | `.muh` | Suffix appended to the hostname in the status topic |
 | `STATUS_PREFIX` | `muh/pc` | Status topic prefix (`<prefix>/<hostname><suffix>`) |
+| `MQTT_WOL` | `1` | Enable Wake-on-LAN (magic packet) on the interface (`0` to disable) |
+| `MQTT_IFACE` | *(auto)* | Network interface; defaults to the interface of the default route |
 
 ## Usage
 
@@ -49,6 +51,14 @@ mosquitto_pub -h 192.168.22.5 -t muh/poweroff -m '{"mac":"aa:bb:cc:dd:ee:ff","se
 ```
 
 **Never publish to the poweroff topic with the retain flag.** The listener skips retained messages (`mosquitto_sub -R`) as a safety net, but a retained poweroff command would still sit on the broker for any other subscriber.
+
+## Wake-on-LAN
+
+With `MQTT_WOL=1` the listener runs `ethtool -s <iface> wol g` at startup and again right before powering off, because many drivers reset the setting on reboot. The status message includes `"wol": true` when it is active.
+
+- Wake-on-LAN must also be enabled in the BIOS/UEFI.
+- Wi-Fi interfaces usually do not support it; use a wired connection.
+- Wake a machine with its MAC address, e.g. `wakeonlan aa:bb:cc:dd:ee:ff` or `etherwake -i <iface> aa:bb:cc:dd:ee:ff`.
 
 ## Security
 

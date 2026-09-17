@@ -13,8 +13,9 @@ Restart=always
 RestartSec=10
 SyslogIdentifier=mqtt-poweroff
 
-# Hardening — the script only needs network, read access to /sys/class/net
-# and the systemd D-Bus socket for poweroff.
+# Hardening — the script only needs network, read access to /sys/class/net,
+# netlink for ip/ethtool (Wake-on-LAN, needs CAP_NET_ADMIN as root) and the
+# systemd D-Bus socket for poweroff.
 NoNewPrivileges=yes
 ProtectHome=yes
 ProtectSystem=strict
