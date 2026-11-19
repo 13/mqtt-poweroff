@@ -1,8 +1,10 @@
 [Unit]
 Description=MQTT Poweroff Listener (MAC matched)
 Documentation=https://github.com/13/mqtt-poweroff
-After=network-online.target
-Wants=network-online.target
+# Not network-online.target: pulling it in makes boot wait for
+# systemd-networkd-wait-online. The script waits for an address itself
+# (MQTT_NET_WAIT) and Restart=always covers an unreachable broker.
+After=network.target
 StartLimitIntervalSec=0
 
 [Service]
